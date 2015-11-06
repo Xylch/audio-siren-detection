@@ -1,0 +1,166 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import distutils.sysconfig
+import os
+import sys
+
+
+def configure(ctx):
+    if ctx.env.WITH_STATIC_EXAMPLES:
+        ctx.env.LINKFLAGS = ['-static', '-pthread']
+        ctx.env.SHLIB_MARKER = '-Wl,-Bstatic'
+
+        # NOTE: this list of libs is hardcoded to work on a debian wheezy system
+        #       with a custom-compiled version of ffmpeg, to reduce the number of
+        #       dependencies and also remove the ones that only exist as dynamic
+        #       libs in wheezy
+        #
+        # To custom compile an adequate ffmpeg, do the following (on debian wheezy,
+        # should probably adapt a little for other systems)
+        #
+        # $ apt-get source libavcodec53
+        # $ sudo apt-get build-dep libavcodec53
+        # $ cd libav*
+        # $ vi debian/confflags
+        #     -> comment out the following lines
+        #     119: dirac_decoder (no static version of lib in wheezy)
+        #     122: gnutls
+        #     125: rtmp
+        #     126: opencv
+        #     129: schroedinger
+        #     132: va  (no static version of lib in wheezy)
+        #     133: vdpau (no static version of lib in wheezy)
+        #     143: X11 ext
+        # $ dpkg-buildpackage -us -uc
+        #
+        # install the built packages (they're 1 level up, ie: cd ..) and
+        # you should be good to go!
+
+        # NOTE: the order of the libs in the following list is VERY important,
+        #       do not mess with it unless you know what you're doing
+        ctx.env.LIB = [ 'avformat', 'avcodec', 'avutil', 'xvidcore', 'x264',
+                        'vorbis', 'vorbisenc', 'ogg', 'theora', 'speex',
+                        'openjpeg', 'mp3lame', 'vpx', 'gsm', 'z', 'bz2' ]
+
+
+def adjust(objs, path):
+    return [ '%s/%s' % (path, obj) for obj in objs ]
+
+
+def build(ctx):
+    print('→ building from ' + ctx.path.abspath())
+
+    if ctx.env.WITH_EXAMPLES:
+        def build_example(prefix, prog_name, other=None):
+            files = [ '%s_%s.cpp' % (prefix, f) for f in [prog_name] + (other or []) ]
+
+            ctx.program(source = ctx.path.ant_glob(' '.join(files)),
+                        target = '%s_%s' % (prefix, prog_name),
+                        includes = [ '.', '..' ],
+                        use      = 'essentia ' + ctx.env.USES,
+                        install_path = None)
+
+
+        build_example('standard', 'beatsmarker')
+        build_example('standard', 'mfcc')
+        build_example('standard', 'onsetrate')
+        build_example('standard', 'pitchyinfft')
+        build_example('standard', 'fadedetection')
+        build_example('standard', 'spectralcontrast')
+        build_example('standard', 'rhythmtransform')
+
+        build_example('streaming', 'extractor',
+                                 [ 'extractorutils',
+                                   'extractortonal',
+                                   'extractorlowlevel',
+                                   'extractorbeattrack',
+                                   'extractorsfx',
+                                   'extractorpanning',
+                                   'extractorpostprocess' ])
+
+        build_example('streaming', 'extractor_short_sounds',
+                                 [ 'extractorutils',
+                                   'extractormetadata',
+                                   'extractortonal',
+                                   'extractorlowlevel',
+                                   'extractorsfx',
+                                   'extractorpanning',
+                                   'extractorpostprocess' ])
+
+        # OUTDATED:
+        #build_example('streaming', 'schizo_extractor',
+        #                         [ 'extractorutils',
+        #                           'extractormetadata',
+        #                           'extractortonal',
+        #                           'extractorlowlevel',
+        #                           'extractorsfx',
+        #                           'extractorpanning',
+        #                           'extractorpostprocess' ])
+
+        #build_example('streaming', 'extractor_canoris',
+        #                         [ 'extractorutils',
+        #                           'extractortonal',
+        #                           'extractorlowlevel',
+        #                           'extractorsfx',
+        #                           'extractorpanning',
+        #                           'extractorpostprocess' ])
+
+        build_example('streaming', 'extractor_archivemusic',
+                                 [ 'extractorutils',
+                                   'extractor_archivemusic_tonal',
+                                   'extractor_archivemusic_lowlevel',
+                                   'extractorsfx',
+                                   'extractorpanning',
+                                   'extractor_archivemusic_postprocess' ])
+
+        build_example('streaming', 'beatsmarker')
+        build_example('streaming', 'mfcc')
+        build_example('streaming', 'gfcc')
+        build_example('streaming', 'rhythmextractor_multifeature')
+        build_example('streaming', 'beattracker_multifeature_mirex2013')
+        build_example('streaming', 'onsetrate')
+        build_example('streaming', 'panning')
+        build_example('streaming', 'tuningfrequency')
+        build_example('streaming', 'key')
+        build_example('streaming', 'pitchyinfft')
+        build_example('streaming', 'predominantmelody')
+        
+        freesound_files = [ 'streaming_extractor_freesound.cpp',
+			     'freesound/FreesoundExtractor.cpp',
+			     'freesound/FreesoundLowlevelDescriptors.cpp',
+			     'freesound/FreesoundRhythmDescriptors.cpp',
+			     'freesound/FreesoundTonalDescriptors.cpp',
+			     'freesound/FreesoundSfxDescriptors.cpp'
+	    ]
+
+        ctx.program(source = ctx.path.ant_glob(' '.join(freesound_files)),
+                        target = 'streaming_extractor_freesound',
+                        includes = [ '.', '..' ,'../..'],
+                        use      = 'essentia ' + ctx.env.USES,
+                        install_path = None)
+
+        # copy svm models to build folder if gaia2 is installed and svm_models folder exists
+        if ctx.env.USES.count('GAIA2'):
+            ctx.install_files('build/src/examples/', ctx.path.ant_glob('svm_models/*'), relative_trick=True)
+
+
+    if ctx.env.WITH_VAMP:
+        ctx.env.INCLUDES += [ '3rdparty/vamp-plugin-sdk-2.4' ]
+
+        vamp_sdk_files   = ctx.path.parent.ant_glob('3rdparty/vamp-plugin-sdk-2.4/src/vamp-sdk/*.cpp')
+        # remove this file, it is already included by FFT.cpp
+        vamp_sdk_files = [ f for f in vamp_sdk_files if os.path.basename(f.srcpath()) != 'FFTimpl.cpp' ]
+
+        if sys.platform == 'darwin':
+            install_path = os.environ['HOME'] + '/Library/Audio/Plug-Ins/Vamp'
+        else:
+            install_path = None
+
+        vamp = ctx.shlib(
+            source   = ctx.path.ant_glob('vamp*.cpp') + vamp_sdk_files,
+            target   = 'vamp_essentia',
+            includes = [ '.', '..', '../3rdparty/vamp-plugin-sdk-2.4' ],
+            use      = 'essentia ' + ctx.env.USES,
+            install_path = install_path
+        )
